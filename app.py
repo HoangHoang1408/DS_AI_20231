@@ -6,8 +6,10 @@ import faiss
 import gradio as gr
 import joblib
 import numpy as np
+from datasets import Dataset
+from sentence_transformers import SentenceTransformer
 
-base_path = "/Users/phamhoang1408/Desktop/20231/DS/ds_project/models"
+base_path = "/content/drive/MyDrive/Data/ds_ai"
 with open(f"{base_path}/features/cap_bac.json", "r") as f:
     cap_bac_feature_values = json.load(f)
 with open(f"{base_path}/features/dia_diem_lam_viec.json", "r") as f:
@@ -121,9 +123,52 @@ def get_prediction(data):
     return min_, max_
 
 
-base_path = "/Users/phamhoang1408/Desktop/20231/DS/ds_project/models"
+def pred_salary(
+    vi_tri_viec,
+    cap_bac,
+    dia_diem_lam_viec,
+    hinh_thuc,
+    loai_hinh_hoat_dong,
+    nganh_nghe,
+    quy_mo_cong_ty,
+    ten_cong_ty,
+    num_followers,
+):
+    print(
+        vi_tri_viec,
+        cap_bac,
+        dia_diem_lam_viec,
+        hinh_thuc,
+        loai_hinh_hoat_dong,
+        nganh_nghe,
+        quy_mo_cong_ty,
+        ten_cong_ty,
+        num_followers,
+    )
+    min_, max_ = get_prediction(
+        {
+            "vi_tri_viec": vi_tri_viec,
+            "cap_bac": cap_bac,
+            "dia_diem_lam_viec": dia_diem_lam_viec,
+            "hinh_thuc": hinh_thuc,
+            "loai_hinh_hoat_dong": loai_hinh_hoat_dong,
+            "nganh_nghe": nganh_nghe,
+            "quy_mo_cong_ty": quy_mo_cong_ty,
+            "ten_cong_ty": ten_cong_ty,
+            "num_followers": num_followers,
+        }
+    )
+    return min_, max_
+
+
+base_path = "/content/drive/MyDrive/Data/ds_ai/embedder"
 embeddings = np.load(f"{base_path}/embeddings.npy")
 index = faiss.IndexFlatIP(embeddings.shape[1])
+index.add(embeddings)
+embedder = SentenceTransformer(base_path)
+corpus = Dataset.from_json(f"{base_path}/corpus.jsonl")
+
+import gradio as gr
 
 
 def pred_salary(
@@ -164,55 +209,93 @@ def pred_salary(
     return min_, max_
 
 
+TEMPLATE = """Vị trí việc: {vi_tri_viec}
+Tên công ty: {ten_cong_ty}
+Địa điểm làm việc: {dia_diem_lam_viec}
+Ngày cập nhật: {ngay_cap_nhat}
+Ngành nghề: {nganh_nghe}
+Hình thức: {hinh_thuc}
+Lương: {luong}
+Cấp bậc: {cap_bac}
+Hết hạn nộp: {het_han_nop}
+Địa chỉ công ty: {dia_chi_cong_ty}
+Loại hình hoạt động: {loai_hinh_hoat_dong}
+Quy mô công ty: {quy_mo_cong_ty}
+Kinh nghiệm: {min_exp} - {max_exp} năm.
+"""
+
+
+def search(text):
+    query_vector = np.array([embedder.encode(text)])
+    scores, i = index.search(query_vector, 5)
+    data = [corpus[int(x)] for x in i[0]]
+    final_string = ""
+    for score, d in zip(scores[0], data):
+        temp_text = TEMPLATE.format(**d)
+        final_string += (
+            f"Score: {score}\n\nResult:\n{temp_text}" + "\n\n" + "-*" * 50 + "\n\n"
+        )
+    return final_string
+
+
+outputs = [
+    gr.Label(label="Lương tối thiểu"),
+    gr.Label(label="Lương tối đa"),
+]
+
 demo = gr.Blocks(title="Salary Estimator")
 with demo:
     with gr.Tabs():
         with gr.TabItem("Salary Estimator"):
-            inputs_tab1 = [
-                vi_tri_viec_textbox := gr.Textbox(label="Vị trí việc"),
-                cap_bac_dropdown := gr.Dropdown(
-                    choices=[x for x in cap_bac_feature_values if x != None],
-                    label="Cấp bậc",
-                ),
-                dia_diem_lam_viec_dropdown := gr.Dropdown(
-                    choices=[x for x in dia_diem_lam_viec_feature_values if x != None],
-                    label="Địa điểm làm việc",
-                    allow_custom_value=True,
-                ),
-                hinh_thuc_dropdown := gr.Dropdown(
-                    choices=[x for x in hinh_thuc_feature_values if x != None],
-                    label="Hình thức",
-                ),
-                loai_hinh_hoat_dong_dropdown := gr.Dropdown(
-                    choices=[
-                        x for x in loai_hinh_hoat_dong_feature_values if x != None
-                    ],
-                    label="Loại hình hoạt động",
-                    allow_custom_value=True,
-                ),
-                nganh_nghe_dropdown := gr.Dropdown(
-                    choices=[x for x in nganh_nghe_feature_values if x != None],
-                    label="Ngành nghề",
-                    allow_custom_value=True,
-                ),
-                quy_mo_cong_ty_number := gr.Number(label="Quy mô công ty"),
-                ten_cong_ty_dropdown := gr.Dropdown(
-                    choices=[x for x in ten_cong_ty_feature_values if x != None],
-                    label="Tên công ty",
-                    allow_custom_value=True,
-                ),
-                num_followers_number := gr.Number(label="Số lượng người theo dõi"),
-            ]
-            btn1 = gr.Button(value="Dự đoán")
-            outputs_tab1 = [
-                gr.Label(label="Lương tối thiểu"),
-                gr.Label(label="Lương tối đa"),
-            ]
+            with gr.Column(scale=2):
+                inputs_tab1 = [
+                    vi_tri_viec_textbox := gr.Textbox(label="Vị trí việc"),
+                    cap_bac_dropdown := gr.Dropdown(
+                        choices=[x for x in cap_bac_feature_values if x != None],
+                        label="Cấp bậc",
+                    ),
+                    dia_diem_lam_viec_dropdown := gr.Dropdown(
+                        choices=[
+                            x for x in dia_diem_lam_viec_feature_values if x != None
+                        ],
+                        label="Địa điểm làm việc",
+                        allow_custom_value=True,
+                    ),
+                    hinh_thuc_dropdown := gr.Dropdown(
+                        choices=[x for x in hinh_thuc_feature_values if x != None],
+                        label="Hình thức",
+                    ),
+                    loai_hinh_hoat_dong_dropdown := gr.Dropdown(
+                        choices=[
+                            x for x in loai_hinh_hoat_dong_feature_values if x != None
+                        ],
+                        label="Loại hình hoạt động",
+                        allow_custom_value=True,
+                    ),
+                    nganh_nghe_dropdown := gr.Dropdown(
+                        choices=[x for x in nganh_nghe_feature_values if x != None],
+                        label="Ngành nghề",
+                        allow_custom_value=True,
+                    ),
+                    quy_mo_cong_ty_number := gr.Number(label="Quy mô công ty"),
+                    ten_cong_ty_dropdown := gr.Dropdown(
+                        choices=[x for x in ten_cong_ty_feature_values if x != None],
+                        label="Tên công ty",
+                        allow_custom_value=True,
+                    ),
+                    num_followers_number := gr.Number(label="Số lượng người theo dõi"),
+                ]
+            with gr.Column(scale=1):
+                outputs_tab1 = [
+                    gr.Label(label="Lương tối thiểu"),
+                    gr.Label(label="Lương tối đa"),
+                ]
+                btn1 = gr.Button(value="Dự đoán")
         with gr.TabItem("Search Job"):
             inputs_tab2 = [gr.Text(label="Tìm kiếm việc làm")]
-            btn2 = gr.Button(value="Tìm kiếm")
             outputs_tab2 = [gr.Text()]
+            btn2 = gr.Button(value="Tìm kiếm")
     btn1.click(pred_salary, inputs=inputs_tab1, outputs=outputs_tab1)
-    btn2.click(pred_salary, inputs=inputs_tab2, outputs=outputs_tab2)
+    btn2.click(search, inputs=inputs_tab2, outputs=outputs_tab2)
 
 demo.launch()
